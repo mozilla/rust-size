@@ -1,0 +1,9 @@
+[package]
+name = "rust-size"
+version = "0.1.0"
+authors = ["Ted Mielczarek <ted@mielczarek.org>"]
+
+[dependencies]
+failure = "0.1.1"
+memmap = "0.6.2"
+goblin = "0.0.15"
