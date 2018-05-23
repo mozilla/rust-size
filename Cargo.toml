@@ -7,3 +7,6 @@ authors = ["Ted Mielczarek <ted@mielczarek.org>"]
 failure = "0.1.1"
 memmap = "0.6.2"
 goblin = "0.0.15"
+serde = "1.0.47"
+serde_derive = "1.0.47"
+serde_json = "1.0.17"
