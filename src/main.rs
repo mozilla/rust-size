@@ -9,6 +9,8 @@ extern crate serde_json;
 
 use failure::Error;
 use goblin::elf::section_header::SHT_NOBITS;
+use goblin::pe::section_table::IMAGE_SCN_MEM_READ;
+use goblin::pe::section_table::IMAGE_SCN_MEM_WRITE;
 use goblin::Object;
 use std::collections::BTreeMap;
 use std::env;
@@ -30,13 +32,13 @@ enum Section {
 
 /// Parse `buf` as an object file, iterate over the sections contained within it, and
 /// return a `Vec` containing a (name, size, Section) tuple for each section.
-fn sections(buf: &[u8]) -> Result<Vec<(&str, u64, Section)>, Error> {
+fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
     Ok(match Object::parse(buf)? {
         Object::Elf(elf) => {
             elf.section_headers.iter().filter_map(|sec| {
                 elf.shdr_strtab.get(sec.sh_name)
                     .and_then(|res| res.ok())
-                    .map(|name| (name, sec.sh_size, if !sec.is_alloc() {
+                    .map(|name| (name.to_string(), sec.sh_size, if !sec.is_alloc() {
                         Section::Other
                     } else if sec.is_executable() || !sec.is_writable() {
                         Section::Text
@@ -47,8 +49,45 @@ fn sections(buf: &[u8]) -> Result<Vec<(&str, u64, Section)>, Error> {
                     }))
             }).collect()
         },
-        Object::PE(_pe) => {
-            unimplemented!()
+        Object::PE(pe) => {
+            let mut bss: u64 = 0;
+            let mut vec: Vec<(String, u64, Section)> = pe.sections.iter().map(|sec| {
+                let mut size = sec.virtual_size as u64;
+                let sec_type = if (sec.characteristics & IMAGE_SCN_MEM_WRITE) == 0 {
+                    Section::Text
+                } else if (sec.characteristics & IMAGE_SCN_MEM_READ) != 0 {
+                    // My understanding is that bss is "hidden" in the portion
+                    // of the data section that is allocated in memory but does
+                    // not correspond to the on disk size.
+                    let delta = sec.virtual_size - sec.size_of_raw_data;
+                    bss += delta as u64;
+
+                    // Since we're splitting out bss we need to use the raw
+                    // size instead.
+                    size = sec.size_of_raw_data as u64;
+
+                    Section::Data
+                } else {
+                    Section::Other
+                };
+
+               (sec.name().unwrap().to_string(), size, sec_type)
+            }).collect();
+
+            if pe.header.optional_header.is_some() {
+                let hdr = pe.header.optional_header.unwrap();
+                let size = hdr.standard_fields.size_of_uninitialized_data;
+
+                // In theory the optional header can hold ths size of BSS aka
+                // uninitialized data. In practice this seems to be zero.
+                if size != 0 {
+                    vec.push((".bss".to_string(), size, Section::Bss));
+                } else {
+                    vec.push((".bss".to_string(), bss, Section::Bss));
+                }
+            }
+
+            vec
         },
         Object::Mach(_mach) => {
             unimplemented!()
@@ -61,10 +100,10 @@ fn main() -> Result<(), Error> {
     let path = env::args_os().nth(1).unwrap();
     let f = File::open(&path)?;
     let buf = unsafe { memmap::Mmap::map(&f)? };
-    let mut map: BTreeMap<Section, BTreeMap<&str, u64>> = BTreeMap::new();
+    let mut map: BTreeMap<Section, BTreeMap<String, u64>> = BTreeMap::new();
     for (name, size, section) in sections(&buf)? {
         map.entry(section)
-            .or_insert_with(|| BTreeMap::<&str, u64>::new()).insert(name, size);
+            .or_insert_with(|| BTreeMap::<String, u64>::new()).insert(name, size);
     }
     let mut stdout = io::stdout();
     serde_json::to_writer_pretty(&mut stdout, &map)?;
