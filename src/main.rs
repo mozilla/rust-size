@@ -9,6 +9,10 @@ extern crate serde_json;
 
 use failure::Error;
 use goblin::elf::section_header::SHT_NOBITS;
+use goblin::mach::constants::SECT_BSS;
+use goblin::mach::constants::SEG_DATA;
+use goblin::mach::constants::SEG_TEXT;
+use goblin::mach::Mach;
 use goblin::pe::section_table::IMAGE_SCN_MEM_READ;
 use goblin::pe::section_table::IMAGE_SCN_MEM_WRITE;
 use goblin::Object;
@@ -89,8 +93,40 @@ fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
 
             vec
         },
-        Object::Mach(_mach) => {
-            unimplemented!()
+        Object::Mach(m) => {
+            match m {
+                Mach::Fat(_fat) => {
+                    unimplemented!()
+                },
+                Mach::Binary(mach) => {
+                    // TODO(erahm): We might want to map these names to linuxesque names:
+                    // |---------------------------------------|
+                    // |     Mach-O       |         ELF        |
+                    // |------------------|--------------------|
+                    // | __TEXT.__text    | .text              |
+                    // | __TEXT.__const   | .rodata            |
+                    // | __TEXT.__cstring | ???.strtab???      |
+                    // | __DATA.__data    | .data              |
+                    // | __DATA.__const   | ???.data.rel.ro??? |
+                    // |---------------------------------------|
+
+                    // `sections` is actually an iterator of iterators.
+                    let sections_itr = mach.segments.sections();
+                    sections_itr.flat_map(|i| i).filter_map(|s| s.ok()).map(|(sec, _data)| {
+                        let name = sec.name().unwrap();
+                        let seg = sec.segname().unwrap();
+                        (name.to_string(), sec.size, if name == SECT_BSS {
+                            Section::Bss
+                        } else if seg == SEG_DATA {
+                            Section::Data
+                        } else if seg == SEG_TEXT {
+                            Section::Text
+                        } else {
+                            Section::Other
+                        })
+                    }).collect()
+                }
+            }
         },
         _ => bail!("Unhandled file type!"),
     })
