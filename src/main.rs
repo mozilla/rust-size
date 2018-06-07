@@ -34,6 +34,37 @@ enum Section {
     Other,
 }
 
+/// Maps a Mach-O section name to it's ELF counterpart if possible.
+///
+/// |---------------------------------------|
+/// |     Mach-O       |         ELF        |
+/// |------------------|--------------------|
+/// | __TEXT.__text    | .text              |
+/// | __TEXT.__const   | .rodata            |
+/// | __TEXT.__cstring | .cstring (.rodata) |
+/// | __DATA.__data    | .data              |
+/// | __DATA.__const   | .data.rel.ro       |
+/// |---------------------------------------|
+fn map_mach_name(seg_name: &str, sec_name: &str) -> String {
+    let mapped = match seg_name {
+        SEG_TEXT => match sec_name {
+            "__text" => ".text",
+            "__const" => ".rodata",
+            "__cstring" => ".cstring", // Not really an ELF name
+            _ => sec_name
+        },
+        SEG_DATA => match sec_name {
+            "__data" => ".data",
+            "__const" => ".data.rel.ro",
+            "__bss" => ".bss",
+            _ => sec_name
+        },
+        _ => sec_name
+    };
+
+    mapped.to_string()
+}
+
 /// Parse `buf` as an object file, iterate over the sections contained within it, and
 /// return a `Vec` containing a (name, size, Section) tuple for each section.
 fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
@@ -99,23 +130,12 @@ fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
                     unimplemented!()
                 },
                 Mach::Binary(mach) => {
-                    // TODO(erahm): We might want to map these names to linuxesque names:
-                    // |---------------------------------------|
-                    // |     Mach-O       |         ELF        |
-                    // |------------------|--------------------|
-                    // | __TEXT.__text    | .text              |
-                    // | __TEXT.__const   | .rodata            |
-                    // | __TEXT.__cstring | ???.strtab???      |
-                    // | __DATA.__data    | .data              |
-                    // | __DATA.__const   | ???.data.rel.ro??? |
-                    // |---------------------------------------|
-
                     // `sections` is actually an iterator of iterators.
                     let sections_itr = mach.segments.sections();
                     sections_itr.flat_map(|i| i).filter_map(|s| s.ok()).map(|(sec, _data)| {
                         let name = sec.name().unwrap();
                         let seg = sec.segname().unwrap();
-                        (name.to_string(), sec.size, if name == SECT_BSS {
+                        (map_mach_name(seg, name), sec.size, if name == SECT_BSS {
                             Section::Bss
                         } else if seg == SEG_DATA {
                             Section::Data
