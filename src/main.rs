@@ -152,7 +152,7 @@ fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
     })
 }
 
-fn main() -> Result<(), Error> {
+fn real_main() -> Result<(), Error> {
     let path = env::args_os().nth(1).unwrap();
     let f = File::open(&path)?;
     let buf = unsafe { memmap::Mmap::map(&f)? };
@@ -164,4 +164,11 @@ fn main() -> Result<(), Error> {
     let mut stdout = io::stdout();
     serde_json::to_writer_pretty(&mut stdout, &map)?;
     Ok(())
+}
+
+fn main() {
+    match real_main() {
+        Ok(_) => {},
+        Err(err) => println!("Error: {:?}", err),
+    }
 }
