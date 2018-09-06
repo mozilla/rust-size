@@ -94,7 +94,12 @@ fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
                     // My understanding is that bss is "hidden" in the portion
                     // of the data section that is allocated in memory but does
                     // not correspond to the on disk size.
-                    let delta = sec.virtual_size - sec.size_of_raw_data;
+                    let delta = if sec.virtual_size > sec.size_of_raw_data {
+                        sec.virtual_size - sec.size_of_raw_data
+                    } else {
+                        0
+                    };
+
                     bss += delta as u64;
 
                     // Since we're splitting out bss we need to use the raw
