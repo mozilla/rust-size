@@ -143,19 +143,31 @@ fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
                 Mach::Binary(mach) => {
                     // `sections` is actually an iterator of iterators.
                     let sections_itr = mach.segments.sections();
-                    sections_itr.flat_map(|i| i).filter_map(|s| s.ok()).map(|(sec, _data)| {
-                        let name = sec.name().unwrap();
-                        let seg = sec.segname().unwrap();
-                        (map_mach_name(seg, name), sec.size, if name == SECT_BSS {
-                            Section::Bss
-                        } else if seg == SEG_DATA {
-                            Section::Data
-                        } else if seg == SEG_TEXT {
-                            Section::Text
-                        } else {
-                            Section::Other
-                        })
-                    }).collect()
+                    let mut vec: Vec<(String, u64, Section)> =
+                        sections_itr.flat_map(|i| i).filter_map(|s| s.ok()).map(|(sec, _data)| {
+                            let name = sec.name().unwrap();
+                            let seg = sec.segname().unwrap();
+                            (map_mach_name(seg, name), sec.size, if name == SECT_BSS {
+                                Section::Bss
+                            } else if seg == SEG_DATA {
+                                Section::Data
+                            } else if seg == SEG_TEXT {
+                                Section::Text
+                            } else {
+                                Section::Other
+                            })
+                        }).collect();
+
+                    // The size field of goblin::mach::exports::Export just returns 0, so the best
+                    // we can do is count.
+                    let export_count = match mach.exports() {
+                        Err(_) => 0,
+                        Ok(exports) => exports.len() as u64,
+                    };
+
+                    vec.push(("export_table".to_string(), export_count, Section::Data));
+
+                    vec
                 }
             }
         },
