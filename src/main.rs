@@ -128,7 +128,6 @@ fn sections(buf: &[u8]) -> Result<Vec<(String, u64, Section)>, Error> {
 
                 // Include the export table size. We'll put this in `Data` I guess.
                 if let Some(table) = hdr.data_directories.get_export_table() {
-                    let table = hdr.data_directories.get_export_table().unwrap();
                     vec.push(("export_table".to_string(), table.size as u64, Section::Data));
                 }
             }
